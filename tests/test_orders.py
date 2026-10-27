@@ -6,7 +6,7 @@ os.environ.setdefault("DATABASE_PATH", "/tmp/q-miniapp-test.db")
 import pytest
 
 from app import database
-from app.services import orders as order_service
+from app.services import mock_1c, orders as order_service
 
 
 @pytest.mark.asyncio
@@ -83,6 +83,86 @@ async def test_pending_orders_lists_only_resumable_orders(tmp_path, monkeypatch)
         (first["order_id"], "Сборка на складе"),
         (third["order_id"], "Заказ создан"),
     ]
+
+
+@pytest.mark.asyncio
+async def test_mock_1c_reserves_stock_only_once(tmp_path, monkeypatch):
+    db_path = tmp_path / "mock-1c-reserve.db"
+    monkeypatch.setattr(database, "DATABASE_PATH", str(db_path))
+
+    await database.init_db()
+    await database.register_user(987654325, "test_user")
+    order, _ = await database.create_order(
+        987654325, "iphone17", "mock-1c-reserve-key-001"
+    )
+
+    first = await database.reserve_mock_stock(order["order_id"])
+    second = await database.reserve_mock_stock(order["order_id"])
+    stock = await database.get_mock_stock()
+
+    assert first["accepted"] is True
+    assert second["accepted"] is True
+    assert next(item["quantity"] for item in stock if item["product_id"] == "iphone17") == 9
+    profile = await database.get_user(987654325)
+    assert profile["balance"] == 3800
+
+
+@pytest.mark.asyncio
+async def test_mock_1c_rejects_out_of_stock_and_refunds_only_once(tmp_path, monkeypatch):
+    db_path = tmp_path / "mock-1c-no-stock.db"
+    monkeypatch.setattr(database, "DATABASE_PATH", str(db_path))
+
+    await database.init_db()
+    await database.register_user(987654326, "test_user")
+    await database.set_mock_stock("iphone17", 0)
+    order, _ = await database.create_order(
+        987654326, "iphone17", "mock-1c-out-of-stock-key"
+    )
+
+    first = await database.reserve_mock_stock(order["order_id"])
+    second = await database.reserve_mock_stock(order["order_id"])
+    profile = await database.get_user(987654326)
+    saved_order = await database.get_order(order["order_id"], 987654326)
+    stock = await database.get_mock_stock()
+
+    assert first["accepted"] is False
+    assert first["status"] == "Отменён: нет в наличии"
+    assert second["accepted"] is False
+    assert profile["balance"] == 5000
+    assert saved_order["status"] == "Отменён: нет в наличии"
+    assert next(item["quantity"] for item in stock if item["product_id"] == "iphone17") == 0
+
+
+@pytest.mark.asyncio
+async def test_workflow_broadcasts_out_of_stock_result(monkeypatch):
+    broadcasts = []
+
+    async def fake_submit_order(order_id):
+        assert order_id == 42
+        return {
+            "user_id": 987654327,
+            "accepted": False,
+            "status": "Отменён: нет в наличии",
+        }
+
+    async def broadcast(user_id, payload):
+        broadcasts.append((user_id, payload))
+
+    async def set_status(order_id, status):
+        raise AssertionError("Rejected order must not enter warehouse assembly")
+
+    async def report_error(where):
+        raise AssertionError(f"Unexpected processing error: {where}")
+
+    monkeypatch.setattr(mock_1c, "submit_order", fake_submit_order)
+
+    await order_service.process_order(42, broadcast, set_status, report_error)
+
+    assert broadcasts == [(987654327, {
+        "type": "order_status",
+        "order_id": 42,
+        "status": "Отменён: нет в наличии",
+    })]
 
 
 @pytest.mark.asyncio
