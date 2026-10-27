@@ -3,8 +3,12 @@ from pathlib import Path
 import aiosqlite
 from app.config import DATABASE_PATH, INITIAL_BALANCE, PRODUCTS
 
+PENDING_ORDER_STATUSES = ("Заказ создан", "Сборка на складе")
+
+
 def now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
 
 async def init_db():
     Path(DATABASE_PATH).parent.mkdir(parents=True, exist_ok=True)
@@ -30,6 +34,7 @@ async def init_db():
         """)
         await db.commit()
 
+
 async def register_user(user_id: int, username: str | None):
     stamp = now()
     async with aiosqlite.connect(DATABASE_PATH, timeout=10) as db:
@@ -41,12 +46,14 @@ async def register_user(user_id: int, username: str | None):
         """, (user_id, username, INITIAL_BALANCE, stamp, stamp))
         await db.commit()
 
+
 async def get_user(user_id: int):
     async with aiosqlite.connect(DATABASE_PATH, timeout=10) as db:
         db.row_factory = aiosqlite.Row
         cur = await db.execute("SELECT user_id, username, balance, order_status FROM users WHERE user_id=?", (user_id,))
         row = await cur.fetchone()
         return dict(row) if row else None
+
 
 async def create_order(user_id: int, product_id: str, idempotency_key: str):
     product = PRODUCTS.get(product_id)
@@ -86,9 +93,24 @@ async def create_order(user_id: int, product_id: str, idempotency_key: str):
             await db.rollback()
             raise
 
+
+async def get_pending_orders():
+    """Return orders whose demo processing can safely resume after a restart."""
+    async with aiosqlite.connect(DATABASE_PATH, timeout=10) as db:
+        db.row_factory = aiosqlite.Row
+        cur = await db.execute("""
+            SELECT order_id, user_id, status
+            FROM orders
+            WHERE status IN (?, ?)
+            ORDER BY order_id ASC
+        """, PENDING_ORDER_STATUSES)
+        return [dict(row) for row in await cur.fetchall()]
+
+
 async def set_order_status(order_id: int, status: str) -> int:
     stamp = now()
     async with aiosqlite.connect(DATABASE_PATH, timeout=10) as db:
+        await db.execute("PRAGMA busy_timeout=10000")
         await db.execute("BEGIN IMMEDIATE")
         try:
             cur = await db.execute("SELECT user_id FROM orders WHERE order_id=?", (order_id,))
@@ -109,6 +131,7 @@ async def set_order_status(order_id: int, status: str) -> int:
             await db.rollback()
             raise
 
+
 async def get_order(order_id: int, user_id: int):
     async with aiosqlite.connect(DATABASE_PATH, timeout=10) as db:
         db.row_factory = aiosqlite.Row
@@ -118,6 +141,7 @@ async def get_order(order_id: int, user_id: int):
         """, (order_id, user_id))
         row = await cur.fetchone()
         return dict(row) if row else None
+
 
 async def get_recent_orders(user_id: int, limit: int = 10):
     async with aiosqlite.connect(DATABASE_PATH, timeout=10) as db:
