@@ -82,17 +82,32 @@ async def get_user(user_id: int):
 
 
 async def reset_demo_balance(user_id: int) -> int:
-    """Restore a user's test-only balance; this is not a payment operation."""
+    """Restore a test balance only when no order can still charge/refund it."""
     stamp = now()
     async with aiosqlite.connect(DATABASE_PATH, timeout=10) as db:
         await db.execute("PRAGMA busy_timeout=10000")
-        cur = await db.execute(
-            "UPDATE users SET balance=?, updated_at=? WHERE user_id=?",
-            (INITIAL_BALANCE, stamp, user_id),
-        )
-        if cur.rowcount != 1:
-            raise ValueError("Пользователь не зарегистрирован")
-        await db.commit()
+        await db.execute("BEGIN IMMEDIATE")
+        try:
+            cur = await db.execute(
+                "SELECT COUNT(*) FROM orders WHERE user_id=? AND status IN (?, ?)",
+                (user_id, *PENDING_ORDER_STATUSES),
+            )
+            pending = (await cur.fetchone())[0]
+            if pending:
+                raise ValueError(
+                    "Нельзя сбросить баланс, пока заказ обрабатывается. "
+                    "Дождитесь статуса «Передано курьеру» или «Отменён: нет в наличии»."
+                )
+            cur = await db.execute(
+                "UPDATE users SET balance=?, updated_at=? WHERE user_id=?",
+                (INITIAL_BALANCE, stamp, user_id),
+            )
+            if cur.rowcount != 1:
+                raise ValueError("Пользователь не зарегистрирован")
+            await db.commit()
+        except Exception:
+            await db.rollback()
+            raise
     return INITIAL_BALANCE
 
 
