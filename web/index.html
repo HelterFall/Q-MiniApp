@@ -10,7 +10,7 @@
 :root{color-scheme:light dark;--bg:var(--tg-theme-bg-color,#f4f5f7);--card:var(--tg-theme-secondary-bg-color,#fff);--text:var(--tg-theme-text-color,#171717);--muted:var(--tg-theme-hint-color,#777);--accent:var(--tg-theme-button-color,#087cff);--accent-text:var(--tg-theme-button-text-color,#fff);--border:color-mix(in srgb,var(--text) 10%,transparent);--ok:#22a06b;--warn:#d99000}
 *{box-sizing:border-box}body{margin:0;padding:max(18px,env(safe-area-inset-top)) 16px max(24px,env(safe-area-inset-bottom));background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;-webkit-font-smoothing:antialiased}
 .shell{width:min(100%,520px);margin:0 auto}header{display:flex;align-items:center;justify-content:space-between;margin:8px 2px 22px}h1{margin:0;font-size:27px;letter-spacing:-.8px}.subtitle{color:var(--muted);font-size:13px;margin-top:4px}.mark{width:42px;height:42px;display:grid;place-items:center;border-radius:14px;background:var(--accent);color:var(--accent-text);font-weight:800;font-size:20px}
-.card{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:20px;margin-bottom:14px;animation:rise .35s ease both}.label{color:var(--muted);font-size:13px}.balance{font-size:34px;font-weight:750;letter-spacing:-1.2px;margin-top:7px}.product-art{height:158px;border-radius:12px;display:grid;place-items:center;font-size:70px;margin-bottom:18px;background:linear-gradient(140deg,#dce8f7,#f7f8fa)}.product-name{font-size:20px;font-weight:700}.description{color:var(--muted);font-size:14px;line-height:1.45;margin-top:7px}.price{font-size:25px;font-weight:750;margin:18px 0}
+.card{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:20px;margin-bottom:14px;animation:rise .35s ease both}.label{color:var(--muted);font-size:13px}.balance{font-size:34px;font-weight:750;letter-spacing:-1.2px;margin-top:7px}.secondary{margin-top:12px;padding:11px 14px;background:transparent;color:var(--accent);border:1px solid var(--border);font-size:14px;font-weight:600}.product-art{height:158px;border-radius:12px;display:grid;place-items:center;font-size:70px;margin-bottom:18px;background:linear-gradient(140deg,#dce8f7,#f7f8fa)}.product-name{font-size:20px;font-weight:700}.description{color:var(--muted);font-size:14px;line-height:1.45;margin-top:7px}.price{font-size:25px;font-weight:750;margin:18px 0}
 button{border:0;width:100%;border-radius:12px;padding:15px 18px;font-family:inherit;font-size:16px;font-weight:650;background:var(--accent);color:var(--accent-text);cursor:pointer;transition:transform .15s,opacity .2s}button:active{transform:scale(.985)}button:disabled{opacity:.55;cursor:wait}.status-line{display:flex;gap:12px;align-items:center}.dot{width:10px;height:10px;border-radius:50%;background:var(--ok);flex:none}.dot.busy{background:var(--warn);animation:pulse 1s infinite}.status-title{font-weight:650;font-size:15px}.status-detail,#notice{color:var(--muted);font-size:13px;line-height:1.4;margin-top:5px;overflow-wrap:anywhere}#notice{margin-top:12px}.orders{margin-top:16px}.order-row{padding:12px 0;border-top:1px solid var(--border);font-size:14px}
 @keyframes pulse{50%{opacity:.35;transform:scale(.85)}}@keyframes rise{from{opacity:0;transform:translateY(7px)}to{opacity:1;transform:translateY(0)}}@media(prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:.01ms!important;transition-duration:.01ms!important}}
 </style>
@@ -18,7 +18,7 @@ button{border:0;width:100%;border-radius:12px;padding:15px 18px;font-family:inhe
 <body>
 <main class="shell">
 <header><div><h1>Q</h1><div class="subtitle">Личный кабинет</div></div><div class="mark" aria-hidden="true">Q</div></header>
-<section class="card"><div class="label">Доступный баланс</div><div class="balance" id="balance">Загрузка…</div></section>
+<section class="card"><div class="label">Доступный баланс</div><div class="balance" id="balance">Загрузка…</div><div class="description">Только демо-деньги, реальные платежи не выполняются.</div><button class="secondary" id="resetBalanceButton" type="button">Восстановить тестовый баланс 5 000 ₽</button></section>
 <section class="card"><div class="product-art" aria-hidden="true">📱</div><div class="product-name" id="productName">Новый iPhone 17</div><div class="description">Демонстрационный товар для тестирования оформления заказа.</div><div class="price" id="productPrice">1 200 ₽</div><div class="description" id="stockInfo">Остаток тестового склада (Mock 1С): загружается…</div><button id="buyButton" type="button" disabled>Загрузка…</button><div id="notice" role="status" aria-live="polite"></div></section>
 <section class="card"><div class="status-line"><div class="dot" id="statusDot"></div><div><div class="status-title" id="status">Нет активных заказов</div><div class="status-detail" id="statusDetail">Статус заказа появится здесь</div></div></div><div class="orders" id="orders"></div></section>
 </main>
@@ -111,6 +111,18 @@ button{border:0;width:100%;border-radius:12px;padding:15px 18px;font-family:inhe
       loadOrders().catch(console.error);
     }, retryMs);
   }
+  $("resetBalanceButton").addEventListener("click", async () => {
+    const button = $("resetBalanceButton"); button.disabled = true;
+    try {
+      const result = await api("/api/demo/reset-balance", {method:"POST",body:"{}"});
+      $("balance").textContent = money(result.balance);
+      $("notice").textContent = "Тестовый баланс восстановлен до " + money(result.balance) + ". Реальных платежей нет.";
+    } catch (err) {
+      $("notice").textContent = err.message;
+    } finally {
+      button.disabled = false;
+    }
+  });
   $("buyButton").addEventListener("click", async () => {
     if (!product) return;
     const button = $("buyButton"); button.disabled = true; $("notice").textContent = "Создаём заказ…";
