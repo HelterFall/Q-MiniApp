@@ -8,95 +8,48 @@ Telegram Mini App prototype built with Python, aiogram 3, FastAPI, SQLite/aiosql
 - Validates Telegram Mini App initData HMAC and auth_date on protected API and WebSocket connections.
 - Server-owned product catalogue; client-submitted prices are never trusted.
 - Creates orders atomically in SQLite and uses an idempotency key to prevent duplicate debits for the same request key.
+- Includes a SQLite-backed Mock 1C warehouse adapter with demo stock, one-item reservations, and out-of-stock rejection/refund.
+- Makes stock reservation and rejection idempotent, so a retry cannot consume stock or refund the same order twice.
 - Persists order status in SQLite and resumes demo orders left in an active status when the app starts again.
 - Pushes demo order-status updates through WebSockets.
 - Logs errors and can notify an administrator in Telegram.
-- Includes tests for signature validation, idempotent balance debits, insufficient balance, and resuming pending demo orders.
+- Includes tests for signature validation, order/balance behaviour, Mock 1C stock reservations, out-of-stock refunds, and pending-order recovery.
 
 ## Layout
 
 - app/main.py — Telegram bot, FastAPI endpoints, initData validation, WebSockets.
-- app/database.py — asynchronous SQLite repository and transactions.
+- app/database.py — asynchronous SQLite repository, transactions, and demo warehouse tables.
 - app/config.py — environment configuration.
+- app/services/mock_1c.py — simulated 1C stock-check and reservation adapter (no real 1C connection).
 - app/services/orders.py — demo order workflow.
 - web/index.html — responsive Mini App interface.
 - tests/test_init_data.py — initData validation tests.
-- tests/test_orders.py — order, balance, and recovery tests.
+- tests/test_orders.py — order, balance, warehouse, and recovery tests.
 
-## Run a demo in Google Colab
+## Running and testing
 
-This setup is for a school/demo run, not guaranteed 24/7 hosting.
+The code and automated checks live in GitHub. GitHub Actions runs the test suite on pushes to `main` and on pull requests. A running Telegram Mini App still needs a reachable HTTPS backend; GitHub itself is not a persistent Python host.
 
-1. Download the ZIP from the GitHub repository (**Code → Download ZIP**) and upload that ZIP in Colab with the first cell below.
-2. In Colab's Secrets panel, add `BOT_TOKEN` (from BotFather) and `NGROK_AUTHTOKEN` (from your ngrok account). Enable notebook access for these secrets. Add `ADMIN_ID` only if you want Telegram error notifications.
-3. Run the cells in order. The app will show a public HTTPS URL and then start Uvicorn. Open the bot in Telegram and send `/start`.
+Install dependencies with `python -m pip install -r requirements.txt`, set `BOT_TOKEN` in the environment, optionally set `WEBAPP_URL` to a public HTTPS address and `ADMIN_ID` for admin notifications, then run:
 
-**Cell 1 — upload and unpack the repository ZIP:**
-
-```python
-from google.colab import files
-from pathlib import Path
-import os
-import zipfile
-
-uploaded = files.upload()  # Select the ZIP downloaded from GitHub
-zip_name = next(iter(uploaded))
-extract_to = Path("/content/q-miniapp")
-extract_to.mkdir(parents=True, exist_ok=True)
-
-with zipfile.ZipFile(zip_name) as archive:
-    archive.extractall(extract_to)
-
-repo_dir = next(extract_to.glob("Q-MiniApp-*"))
-os.chdir(repo_dir)
-print("Project folder:", repo_dir)
+```bash
+uvicorn app.main:app --host 0.0.0.0 --port 8000
 ```
 
-**Cell 2 — install dependencies:**
-
-```python
-%pip install -r requirements.txt
-```
-
-**Cell 3 — load secrets and create the HTTPS tunnel:**
-
-```python
-import os
-from google.colab import userdata
-from pyngrok import ngrok
-
-os.environ["BOT_TOKEN"] = userdata.get("BOT_TOKEN")
-try:
-    os.environ["ADMIN_ID"] = userdata.get("ADMIN_ID")
-except Exception:
-    os.environ["ADMIN_ID"] = "0"
-
-ngrok.set_auth_token(userdata.get("NGROK_AUTHTOKEN"))
-tunnel = ngrok.connect(8000, "http")
-os.environ["WEBAPP_URL"] = tunnel.public_url
-print("Mini App HTTPS URL:", tunnel.public_url)
-```
-
-**Cell 4 — start the app:**
-
-```python
-!uvicorn app.main:app --host 0.0.0.0 --port 8000
-```
-
-Keep that cell running while testing. If the Colab runtime stops or restarts, the bot and tunnel stop too; create a new tunnel and repeat the setup. Never paste real tokens into chat, source files, notebook output, or GitHub.
-
-**Run tests in a terminal or notebook cell:**
+Run tests with:
 
 ```bash
 python -m pytest -q
 ```
 
+Keep `BOT_TOKEN`, API keys, and tunnel credentials out of source code, notebook output, and GitHub.
+
 ## Demo behaviour
 
-The balance is a test-only internal ledger. The order processor waits briefly to simulate a stock check, then changes the status to “Сборка на складе” and “Передано курьеру”. If the app is restarted while an order is in one of the active statuses, it will attempt to resume that demo order from the last status saved in SQLite. No real card payment or actual 1C integration is performed.
+The balance is a test-only internal ledger, not real card payment. On purchase, the app debits the test balance and creates an order. The Mock 1C adapter waits three seconds, checks the SQLite-backed demo warehouse, and atomically reserves one item when stock is available. A successful order advances to “Сборка на складе” and then “Передано курьеру”. If stock is unavailable, the order is cancelled as “Отменён: нет в наличии” and the test balance is refunded. A repeated processing attempt cannot reserve or refund the same order twice.
+
+The demo warehouse starts with 10 units for each configured product. The initial quantity is only seeded when a product has no stock row, so it is not reset on application restarts. This is a simulation only; no real 1C integration or card payment is performed.
 
 ## Production limitations
 
 This is a development prototype, not an enterprise SLA system. Recovery is checked on app startup, while order processing still runs in an in-process background task; a durable queue/worker, retry policy, and operational monitoring are needed before production. WebSocket connections are process-local; multi-instance deployments need a shared pub/sub broker. SQLite is intended for a small prototype, not multi-instance production writes. Real card payments require a payment provider and verified server-side callbacks. A real 1C adapter needs authentication, timeouts, retries, idempotency, and reconciliation.
-
-Keep BOT_TOKEN, API keys, and tunnel credentials out of GitHub, including private repositories.
