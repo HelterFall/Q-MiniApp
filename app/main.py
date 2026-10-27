@@ -76,6 +76,22 @@ async def broadcast(user_id: int, payload: dict):
             connections.get(user_id, set()).discard(ws)
 
 
+async def send_latest_order_status(websocket: WebSocket, user_id: int):
+    """Replay the most recent order state after a WebSocket reconnect."""
+    try:
+        recent_orders = await database.get_recent_orders(user_id, limit=1)
+        if recent_orders:
+            latest = recent_orders[0]
+            await websocket.send_json({
+                "type": "order_status",
+                "order_id": latest["order_id"],
+                "status": latest["status"],
+            })
+    except Exception:
+        # A failed snapshot should not suppress normal WebSocket delivery.
+        log.exception("Could not restore latest order status for user %s", user_id)
+
+
 def track_task(task: asyncio.Task):
     background_tasks.add(task)
 
@@ -258,6 +274,9 @@ async def websocket_endpoint(websocket: WebSocket):
         user_id = user["id"]
         connections.setdefault(user_id, set()).add(websocket)
         await websocket.send_json({"type": "connected"})
+        # WebSocket events can be missed while the Mini App is suspended.
+        # Replay the latest persisted state so the client can recover.
+        await send_latest_order_status(websocket, user_id)
         while True:
             text = await websocket.receive_text()
             if text == "ping":
