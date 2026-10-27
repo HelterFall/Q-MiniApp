@@ -29,7 +29,7 @@ button{border:0;width:100%;border-radius:12px;padding:15px 18px;font-family:inhe
   const initData = (tg && tg.initData) || "";
   const $ = (id) => document.getElementById(id);
   let socket = null, retryTimer = null, retryMs = 1000, disposed = false;
-  let currentOrderId = null, product = null;
+  let currentOrderId = null, product = null, orderInFlight = false;
   const money = (n) => new Intl.NumberFormat("ru-RU").format(n) + " ₽";
 
   async function api(path, options = {}) {
@@ -96,6 +96,10 @@ button{border:0;width:100%;border-radius:12px;padding:15px 18px;font-family:inhe
           if (msg.status === "Сборка на складе") detail = "Имитация 1С: товар в наличии, остаток зарезервирован · заказ №" + msg.order_id;
           if (msg.status === "Отменён: нет в наличии") detail = "Имитация 1С: товара нет · тестовый баланс возвращён · заказ №" + msg.order_id;
           setStatus(msg.status, detail);
+          if (["Передано курьеру", "Отменён: нет в наличии"].includes(msg.status)) {
+            orderInFlight = false;
+            $("buyButton").disabled = false;
+          }
           await Promise.all([loadProfile(), loadOrders(), loadStock()]);
         }
       } catch (err) { console.error("WebSocket message error", err); }
@@ -123,9 +127,38 @@ button{border:0;width:100%;border-radius:12px;padding:15px 18px;font-family:inhe
       button.disabled = false;
     }
   });
+  async function waitForOrderResult(orderId) {
+    const terminalStatuses = ["Передано курьеру", "Отменён: нет в наличии"];
+    for (let attempt = 0; attempt < 15; attempt++) {
+      try {
+        const order = await api("/api/orders/" + orderId);
+        if (terminalStatuses.includes(order.status)) {
+          currentOrderId = orderId;
+          setStatus(order.status, order.status === "Отменён: нет в наличии"
+            ? "Имитация 1С: товара нет · тестовый баланс возвращён · заказ №" + orderId
+            : "Заказ №" + orderId + " завершён");
+          $("notice").textContent = order.status === "Отменён: нет в наличии"
+            ? "Товара нет в наличии. Списание отменено, баланс возвращён."
+            : "Демо-заказ обработан.";
+          await Promise.all([loadProfile(), loadOrders(), loadStock()]);
+          orderInFlight = false;
+          $("buyButton").disabled = false;
+          return;
+        }
+      } catch (err) {
+        console.error("Order status polling error", err);
+      }
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+    }
+    $("notice").textContent = "Заказ ещё обрабатывается. Кнопка покупки останется заблокирована, пока не будет подтверждён итоговый статус.";
+  }
+
   $("buyButton").addEventListener("click", async () => {
-    if (!product) return;
-    const button = $("buyButton"); button.disabled = true; $("notice").textContent = "Создаём заказ…";
+    if (!product || orderInFlight) return;
+    const button = $("buyButton");
+    orderInFlight = true;
+    button.disabled = true;
+    $("notice").textContent = "Создаём заказ…";
     try {
       const key = (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + "-" + Math.random().toString(36).slice(2));
       const result = await api("/api/create-order", {method:"POST",body:JSON.stringify({product_id:product.id,idempotency_key:key})});
@@ -133,8 +166,12 @@ button{border:0;width:100%;border-radius:12px;padding:15px 18px;font-family:inhe
       setStatus("Проверка склада (Mock 1С)", "Заказ №" + result.order_id);
       $("notice").textContent = "Заказ создан. Проверяем остаток на тестовом складе (имитация 1С)…";
       await Promise.all([loadOrders(), loadStock()]);
-    } catch (err) { $("notice").textContent = err.message; }
-    finally { button.disabled = false; }
+      await waitForOrderResult(result.order_id);
+    } catch (err) {
+      $("notice").textContent = err.message;
+      orderInFlight = false;
+      button.disabled = false;
+    }
   });
   window.addEventListener("pagehide", () => { disposed = true; if (retryTimer) clearTimeout(retryTimer); if (socket) socket.close(); });
   Promise.all([loadProfile(),loadProducts(),loadOrders(),loadStock()]).then(connectSocket).catch((err) => {
