@@ -5,6 +5,7 @@ import json
 import logging
 import time
 import traceback
+from pathlib import Path
 from contextlib import asynccontextmanager
 from urllib.parse import parse_qsl
 
@@ -25,6 +26,7 @@ bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 connections: dict[int, set[WebSocket]] = {}
 background_tasks: set[asyncio.Task] = set()
+INDEX_HTML = Path(__file__).resolve().parent.parent / "web" / "index.html"
 
 
 def validate_init_data(init_data: str) -> dict:
@@ -144,7 +146,13 @@ app = FastAPI(title="Q Mini App", version="0.1.0", lifespan=lifespan)
 
 @app.get("/")
 async def index():
-    return FileResponse("web/index.html")
+    return FileResponse(
+        INDEX_HTML,
+        headers={
+            "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+            "Pragma": "no-cache",
+        },
+    )
 
 
 @app.get("/health")
