@@ -21,28 +21,73 @@ Telegram Mini App prototype built with Python, aiogram 3, FastAPI, SQLite/aiosql
 - web/index.html — responsive Mini App interface.
 - tests/test_init_data.py — initData validation tests.
 
-## Run in Google Colab
+## Run a demo in Google Colab
 
-Install dependencies:
+This setup is for a school/demo run, not guaranteed 24/7 hosting.
 
-    %pip install -r requirements.txt
+1. Download the ZIP from the private GitHub repository (**Code → Download ZIP**) and upload that ZIP in Colab with the first cell below.
+2. In Colab's Secrets panel, add `BOT_TOKEN` (from BotFather) and `NGROK_AUTHTOKEN` (from your ngrok account). Enable notebook access for these secrets. Add `ADMIN_ID` only if you want Telegram error notifications.
+3. Run the cells in order. The app will show a public HTTPS URL and then start Uvicorn. Open the bot in Telegram and send `/start`.
 
-Set environment variables before starting Uvicorn:
+**Cell 1 — upload and unpack the repository ZIP:**
 
-- BOT_TOKEN — token from BotFather.
-- ADMIN_ID — optional numeric Telegram user ID for error notifications.
-- WEBAPP_URL — public HTTPS URL of the Mini App tunnel.
-- DATABASE_PATH — optional SQLite path; defaults to data/app.db.
+```python
+from google.colab import files
+from pathlib import Path
+import os
+import zipfile
 
-Then start:
+uploaded = files.upload()  # Select the ZIP downloaded from GitHub
+zip_name = next(iter(uploaded))
+extract_to = Path("/content/q-miniapp")
+extract_to.mkdir(parents=True, exist_ok=True)
 
-    !uvicorn app.main:app --host 0.0.0.0 --port 8000
+with zipfile.ZipFile(zip_name) as archive:
+    archive.extractall(extract_to)
 
-Expose port 8000 using ngrok or another HTTPS tunnel. Create the tunnel first, set WEBAPP_URL to its HTTPS URL, then start Uvicorn and open the Mini App through the bot's /start button. Keep BOT_TOKEN and tunnel credentials in Colab Secrets or environment variables; never print or commit them. Colab runtimes are temporary and may stop, so this setup is for demos and testing, not guaranteed 24/7 hosting.
+repo_dir = next(extract_to.glob("Q-MiniApp-*"))
+os.chdir(repo_dir)
+print("Project folder:", repo_dir)
+```
 
-Run tests:
+**Cell 2 — install dependencies:**
 
-    pytest -q
+```python
+%pip install -r requirements.txt
+```
+
+**Cell 3 — load secrets and create the HTTPS tunnel:**
+
+```python
+import os
+from google.colab import userdata
+from pyngrok import ngrok
+
+os.environ["BOT_TOKEN"] = userdata.get("BOT_TOKEN")
+try:
+    os.environ["ADMIN_ID"] = userdata.get("ADMIN_ID")
+except Exception:
+    os.environ["ADMIN_ID"] = "0"
+
+ngrok.set_auth_token(userdata.get("NGROK_AUTHTOKEN"))
+tunnel = ngrok.connect(8000, "http")
+os.environ["WEBAPP_URL"] = tunnel.public_url
+print("Mini App HTTPS URL:", tunnel.public_url)
+```
+
+**Cell 4 — start the app:**
+
+```python
+!uvicorn app.main:app --host 0.0.0.0 --port 8000
+```
+
+Keep that cell running while testing. If the Colab runtime stops or restarts, the bot and tunnel stop too; create a new tunnel and repeat the setup. Never paste real tokens into chat, source files, notebook output, or GitHub.
+
+**Run tests in a terminal or notebook cell:**
+
+```bash
+pytest -q
+```
 
 ## Demo behaviour
 
