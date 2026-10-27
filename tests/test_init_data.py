@@ -5,7 +5,7 @@ import os
 import time
 from urllib.parse import urlencode
 
-os.environ.setdefault("BOT_TOKEN", "test-token-for-signature-tests")
+os.environ.setdefault("BOT_TOKEN", "123456789:ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghi")
 os.environ.setdefault("DATABASE_PATH", "/tmp/q-miniapp-test.db")
 
 from fastapi import HTTPException
