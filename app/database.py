@@ -1,9 +1,13 @@
 from datetime import datetime, timezone
 from pathlib import Path
+
 import aiosqlite
+
 from app.config import DATABASE_PATH, INITIAL_BALANCE, PRODUCTS
 
 PENDING_ORDER_STATUSES = ("Заказ создан", "Сборка на складе")
+MOCK_INITIAL_STOCK = 10
+STOCK_OUT_STATUS = "Отменён: нет в наличии"
 
 
 def now() -> str:
@@ -31,7 +35,29 @@ async def init_db():
           UNIQUE(user_id, idempotency_key)
         );
         CREATE INDEX IF NOT EXISTS idx_orders_user ON orders(user_id, order_id DESC);
+        CREATE TABLE IF NOT EXISTS mock_1c_stock (
+          product_id TEXT PRIMARY KEY,
+          product_name TEXT NOT NULL,
+          quantity INTEGER NOT NULL CHECK(quantity >= 0),
+          updated_at TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS mock_1c_reservations (
+          order_id INTEGER PRIMARY KEY REFERENCES orders(order_id),
+          user_id INTEGER NOT NULL,
+          product_id TEXT NOT NULL,
+          status TEXT NOT NULL CHECK(status IN ('reserved', 'rejected')),
+          created_at TEXT NOT NULL
+        );
         """)
+        stamp = now()
+        for product_id, product in PRODUCTS.items():
+            await db.execute(
+                """
+                INSERT OR IGNORE INTO mock_1c_stock(product_id, product_name, quantity, updated_at)
+                VALUES (?, ?, ?, ?)
+                """,
+                (product_id, product["name"], MOCK_INITIAL_STOCK, stamp),
+            )
         await db.commit()
 
 
@@ -92,6 +118,122 @@ async def create_order(user_id: int, product_id: str, idempotency_key: str):
         except Exception:
             await db.rollback()
             raise
+
+
+async def reserve_mock_stock(order_id: int) -> dict:
+    """Atomically simulate 1C stock validation, reservation, or rejection/refund.
+
+    A unique reservation row makes retries safe: the stock cannot be reserved twice
+    and a rejected order cannot be refunded more than once.
+    """
+    stamp = now()
+    async with aiosqlite.connect(DATABASE_PATH, timeout=10) as db:
+        db.row_factory = aiosqlite.Row
+        await db.execute("PRAGMA busy_timeout=10000")
+        await db.execute("BEGIN IMMEDIATE")
+        try:
+            cur = await db.execute(
+                "SELECT user_id, product_id, price FROM orders WHERE order_id=?",
+                (order_id,),
+            )
+            order = await cur.fetchone()
+            if not order:
+                raise ValueError("Заказ не найден")
+
+            cur = await db.execute(
+                "SELECT status FROM mock_1c_reservations WHERE order_id=?",
+                (order_id,),
+            )
+            existing = await cur.fetchone()
+            if existing:
+                await db.commit()
+                return {
+                    "user_id": order["user_id"],
+                    "accepted": existing["status"] == "reserved",
+                    "status": "reserved" if existing["status"] == "reserved" else STOCK_OUT_STATUS,
+                }
+
+            cur = await db.execute(
+                "SELECT quantity FROM mock_1c_stock WHERE product_id=?",
+                (order["product_id"],),
+            )
+            stock = await cur.fetchone()
+            if stock and stock["quantity"] > 0:
+                cur = await db.execute(
+                    "UPDATE mock_1c_stock SET quantity=quantity-1, updated_at=? "
+                    "WHERE product_id=? AND quantity>0",
+                    (stamp, order["product_id"]),
+                )
+                if cur.rowcount == 1:
+                    await db.execute(
+                        """
+                        INSERT INTO mock_1c_reservations(order_id, user_id, product_id, status, created_at)
+                        VALUES (?, ?, ?, 'reserved', ?)
+                        """,
+                        (order_id, order["user_id"], order["product_id"], stamp),
+                    )
+                    await db.commit()
+                    return {"user_id": order["user_id"], "accepted": True, "status": "reserved"}
+
+            # Record rejection and refund within the same transaction. Repeated
+            # attempts find this row above and therefore cannot refund again.
+            await db.execute(
+                """
+                INSERT INTO mock_1c_reservations(order_id, user_id, product_id, status, created_at)
+                VALUES (?, ?, ?, 'rejected', ?)
+                """,
+                (order_id, order["user_id"], order["product_id"], stamp),
+            )
+            await db.execute(
+                "UPDATE orders SET status=?, updated_at=? WHERE order_id=?",
+                (STOCK_OUT_STATUS, stamp, order_id),
+            )
+            await db.execute(
+                """
+                UPDATE users SET balance=balance+?, updated_at=?
+                WHERE user_id=?
+                """,
+                (order["price"], stamp, order["user_id"]),
+            )
+            await db.execute(
+                """
+                UPDATE users SET order_status=?, updated_at=?
+                WHERE user_id=? AND NOT EXISTS (
+                  SELECT 1 FROM orders newer WHERE newer.user_id=users.user_id AND newer.order_id>?
+                )
+                """,
+                (STOCK_OUT_STATUS, stamp, order["user_id"], order_id),
+            )
+            await db.commit()
+            return {"user_id": order["user_id"], "accepted": False, "status": STOCK_OUT_STATUS}
+        except Exception:
+            await db.rollback()
+            raise
+
+
+async def get_mock_stock():
+    """Return the demo warehouse stock for tests and diagnostics."""
+    async with aiosqlite.connect(DATABASE_PATH, timeout=10) as db:
+        db.row_factory = aiosqlite.Row
+        cur = await db.execute(
+            "SELECT product_id, product_name, quantity FROM mock_1c_stock ORDER BY product_id"
+        )
+        return [dict(row) for row in await cur.fetchall()]
+
+
+async def set_mock_stock(product_id: str, quantity: int):
+    """Set demo stock for tests; do not expose this helper as a public API."""
+    if not isinstance(quantity, int) or isinstance(quantity, bool) or quantity < 0:
+        raise ValueError("Остаток должен быть целым числом не меньше нуля")
+    async with aiosqlite.connect(DATABASE_PATH, timeout=10) as db:
+        await db.execute("PRAGMA busy_timeout=10000")
+        cur = await db.execute(
+            "UPDATE mock_1c_stock SET quantity=?, updated_at=? WHERE product_id=?",
+            (quantity, now(), product_id),
+        )
+        if cur.rowcount != 1:
+            raise ValueError("Товар не найден в тестовом складе")
+        await db.commit()
 
 
 async def get_pending_orders():
