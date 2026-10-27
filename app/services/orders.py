@@ -1,6 +1,8 @@
 import asyncio
 import logging
 
+from app.services import mock_1c
+
 log = logging.getLogger(__name__)
 
 
@@ -11,10 +13,20 @@ async def process_order(
     report_error,
     initial_status: str = "Заказ создан",
 ):
-    """Demo workflow that resumes from the last status persisted in SQLite."""
+    """Process a demo order and resume from the last persisted status."""
     try:
         if initial_status == "Заказ создан":
-            await asyncio.sleep(3)
+            # Mock 1C performs the simulated network/warehouse wait and stock check.
+            result = await mock_1c.submit_order(order_id)
+            user_id = result["user_id"]
+            if not result["accepted"]:
+                await broadcast(user_id, {
+                    "type": "order_status",
+                    "order_id": order_id,
+                    "status": result["status"],
+                })
+                return
+
             user_id = await set_status(order_id, "Сборка на складе")
             await broadcast(user_id, {
                 "type": "order_status",
