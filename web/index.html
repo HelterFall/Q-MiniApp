@@ -19,7 +19,7 @@ button{border:0;width:100%;border-radius:12px;padding:15px 18px;font-family:inhe
 <main class="shell">
 <header><div><h1>Q</h1><div class="subtitle">Личный кабинет</div></div><div class="mark" aria-hidden="true">Q</div></header>
 <section class="card"><div class="label">Доступный баланс</div><div class="balance" id="balance">Загрузка…</div></section>
-<section class="card"><div class="product-art" aria-hidden="true">📱</div><div class="product-name" id="productName">Новый iPhone 17</div><div class="description">Демонстрационный товар для тестирования оформления заказа.</div><div class="price" id="productPrice">1 200 ₽</div><button id="buyButton" type="button" disabled>Загрузка…</button><div id="notice" role="status" aria-live="polite"></div></section>
+<section class="card"><div class="product-art" aria-hidden="true">📱</div><div class="product-name" id="productName">Новый iPhone 17</div><div class="description">Демонстрационный товар для тестирования оформления заказа.</div><div class="price" id="productPrice">1 200 ₽</div><div class="description" id="stockInfo">Остаток тестового склада (Mock 1С): загружается…</div><button id="buyButton" type="button" disabled>Загрузка…</button><div id="notice" role="status" aria-live="polite"></div></section>
 <section class="card"><div class="status-line"><div class="dot" id="statusDot"></div><div><div class="status-title" id="status">Нет активных заказов</div><div class="status-detail" id="statusDetail">Статус заказа появится здесь</div></div></div><div class="orders" id="orders"></div></section>
 </main>
 <script>
@@ -45,7 +45,7 @@ button{border:0;width:100%;border-radius:12px;padding:15px 18px;font-family:inhe
   function setStatus(text, detail = "") {
     $("status").textContent = text;
     $("statusDetail").textContent = detail;
-    $("statusDot").classList.toggle("busy", ["Заказ создан","Сборка на складе"].includes(text));
+    $("statusDot").classList.toggle("busy", ["Заказ создан","Проверка склада (Mock 1С)","Сборка на складе"].includes(text));
   }
   async function loadProfile() {
     const me = await api("/api/me");
@@ -74,6 +74,13 @@ button{border:0;width:100%;border-radius:12px;padding:15px 18px;font-family:inhe
     $("productPrice").textContent = money(product.price);
     $("buyButton").textContent = "Купить"; $("buyButton").disabled = false;
   }
+  async function loadStock() {
+    const list = await api("/api/stock");
+    const item = list.find((entry) => entry.product_id === "iphone17") || list[0];
+    $("stockInfo").textContent = item
+      ? "Остаток тестового склада (Mock 1С): " + item.quantity + " шт."
+      : "Нет данных об остатке тестового склада.";
+  }
   function connectSocket() {
     if (disposed || !initData) return;
     const scheme = location.protocol === "https:" ? "wss:" : "ws:";
@@ -84,8 +91,12 @@ button{border:0;width:100%;border-radius:12px;padding:15px 18px;font-family:inhe
         const msg = JSON.parse(event.data);
         if (msg.type === "order_status") {
           if (currentOrderId && msg.order_id !== currentOrderId) return;
-          currentOrderId = msg.order_id; setStatus(msg.status, "Заказ №" + msg.order_id);
-          await Promise.all([loadProfile(), loadOrders()]);
+          currentOrderId = msg.order_id;
+          let detail = "Заказ №" + msg.order_id;
+          if (msg.status === "Сборка на складе") detail = "Имитация 1С: товар в наличии, остаток зарезервирован · заказ №" + msg.order_id;
+          if (msg.status === "Отменён: нет в наличии") detail = "Имитация 1С: товара нет · тестовый баланс возвращён · заказ №" + msg.order_id;
+          setStatus(msg.status, detail);
+          await Promise.all([loadProfile(), loadOrders(), loadStock()]);
         }
       } catch (err) { console.error("WebSocket message error", err); }
     };
@@ -107,13 +118,14 @@ button{border:0;width:100%;border-radius:12px;padding:15px 18px;font-family:inhe
       const key = (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + "-" + Math.random().toString(36).slice(2));
       const result = await api("/api/create-order", {method:"POST",body:JSON.stringify({product_id:product.id,idempotency_key:key})});
       currentOrderId = result.order_id; $("balance").textContent = money(result.balance);
-      setStatus(result.status, "Заказ №" + result.order_id);
-      $("notice").textContent = "Заказ принят на тестовую обработку."; await loadOrders();
+      setStatus("Проверка склада (Mock 1С)", "Заказ №" + result.order_id);
+      $("notice").textContent = "Заказ создан. Проверяем остаток на тестовом складе (имитация 1С)…";
+      await Promise.all([loadOrders(), loadStock()]);
     } catch (err) { $("notice").textContent = err.message; }
     finally { button.disabled = false; }
   });
   window.addEventListener("pagehide", () => { disposed = true; if (retryTimer) clearTimeout(retryTimer); if (socket) socket.close(); });
-  Promise.all([loadProfile(),loadProducts(),loadOrders()]).then(connectSocket).catch((err) => {
+  Promise.all([loadProfile(),loadProducts(),loadOrders(),loadStock()]).then(connectSocket).catch((err) => {
     $("notice").textContent = err.message; $("buyButton").textContent = "Недоступно";
   });
 })();
