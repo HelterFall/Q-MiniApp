@@ -8,9 +8,10 @@ Telegram Mini App prototype built with Python, aiogram 3, FastAPI, SQLite/aiosql
 - Validates Telegram Mini App initData HMAC and auth_date on protected API and WebSocket connections.
 - Server-owned product catalogue; client-submitted prices are never trusted.
 - Creates orders atomically in SQLite and uses an idempotency key to prevent duplicate debits for the same request key.
+- Persists order status in SQLite and resumes demo orders left in an active status when the app starts again.
 - Pushes demo order-status updates through WebSockets.
 - Logs errors and can notify an administrator in Telegram.
-- Includes basic signature-validation tests.
+- Includes tests for signature validation, idempotent balance debits, insufficient balance, and resuming pending demo orders.
 
 ## Layout
 
@@ -20,6 +21,7 @@ Telegram Mini App prototype built with Python, aiogram 3, FastAPI, SQLite/aiosql
 - app/services/orders.py — demo order workflow.
 - web/index.html — responsive Mini App interface.
 - tests/test_init_data.py — initData validation tests.
+- tests/test_orders.py — order, balance, and recovery tests.
 
 ## Run a demo in Google Colab
 
@@ -86,15 +88,15 @@ Keep that cell running while testing. If the Colab runtime stops or restarts, th
 **Run tests in a terminal or notebook cell:**
 
 ```bash
-pytest -q
+python -m pytest -q
 ```
 
 ## Demo behaviour
 
-The balance is a test-only internal ledger. The order processor waits briefly to simulate a stock check, then changes the status to “Сборка на складе” and “Передано курьеру”. No real card payment or actual 1C integration is performed.
+The balance is a test-only internal ledger. The order processor waits briefly to simulate a stock check, then changes the status to “Сборка на складе” and “Передано курьеру”. If the app is restarted while an order is in one of the active statuses, it will attempt to resume that demo order from the last status saved in SQLite. No real card payment or actual 1C integration is performed.
 
 ## Production limitations
 
-This is a development prototype, not an enterprise SLA system. Order processing runs as an in-process background task and can be interrupted by a restart; use a durable queue/worker and recovery logic before production. WebSocket connections are process-local; multi-instance deployments need a shared pub/sub broker. SQLite is intended for a small prototype, not multi-instance production writes. Real card payments require a payment provider and verified server-side callbacks. A real 1C adapter needs authentication, timeouts, retries, idempotency, and reconciliation.
+This is a development prototype, not an enterprise SLA system. Recovery is checked on app startup, while order processing still runs in an in-process background task; a durable queue/worker, retry policy, and operational monitoring are needed before production. WebSocket connections are process-local; multi-instance deployments need a shared pub/sub broker. SQLite is intended for a small prototype, not multi-instance production writes. Real card payments require a payment provider and verified server-side callbacks. A real 1C adapter needs authentication, timeouts, retries, idempotency, and reconciliation.
 
 Keep BOT_TOKEN, API keys, and tunnel credentials out of GitHub, including private repositories.
