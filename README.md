@@ -26,6 +26,32 @@ Telegram Mini App prototype built with Python, aiogram 3, FastAPI, SQLite/aiosql
 - tests/test_init_data.py — initData validation tests.
 - tests/test_orders.py — order, balance, warehouse, and recovery tests.
 
+## Google Colab launch (ngrok)
+
+The repository includes `colab_launcher.py`, which starts an HTTPS ngrok tunnel and sets `WEBAPP_URL` before importing the app. It prompts for secrets without echoing them, so do not paste bot or ngrok tokens into source code or commit them to GitHub.
+
+In a fresh Google Colab notebook, run these cells:
+
+**Cell 1 — clone the repository and install dependencies**
+
+```python
+!git clone https://github.com/HelterFall/Q-MiniApp.git
+%cd /content/Q-MiniApp
+!pip -q install -r requirements.txt
+```
+
+If you already have the repository in the current Colab session, use `%cd /content/Q-MiniApp` and skip cloning.
+
+**Cell 2 — start the tunnel, bot, and web server**
+
+```python
+!python colab_launcher.py
+```
+
+Enter the Telegram bot token from BotFather, the ngrok authtoken from your ngrok dashboard, and optionally your numeric Telegram user ID for admin error notifications. The script prints the HTTPS URL and assigns it to `WEBAPP_URL`; then open the bot in Telegram and send `/start`.
+
+Keep the Colab cell running: stopping the cell or disconnecting the runtime stops both the app and its tunnel, and the ngrok URL may change on the next run. Do not run another Uvicorn instance on port 8000 at the same time.
+
 ## Running and testing
 
 The code and automated checks live in GitHub. GitHub Actions runs the test suite on pushes to `main` and on pull requests. A running Telegram Mini App still needs a reachable HTTPS backend; GitHub itself is not a persistent Python host.
