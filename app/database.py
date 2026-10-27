@@ -81,6 +81,21 @@ async def get_user(user_id: int):
         return dict(row) if row else None
 
 
+async def reset_demo_balance(user_id: int) -> int:
+    """Restore a user's test-only balance; this is not a payment operation."""
+    stamp = now()
+    async with aiosqlite.connect(DATABASE_PATH, timeout=10) as db:
+        await db.execute("PRAGMA busy_timeout=10000")
+        cur = await db.execute(
+            "UPDATE users SET balance=?, updated_at=? WHERE user_id=?",
+            (INITIAL_BALANCE, stamp, user_id),
+        )
+        if cur.rowcount != 1:
+            raise ValueError("Пользователь не зарегистрирован")
+        await db.commit()
+    return INITIAL_BALANCE
+
+
 async def create_order(user_id: int, product_id: str, idempotency_key: str):
     product = PRODUCTS.get(product_id)
     if not product:
