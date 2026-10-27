@@ -76,13 +76,29 @@ async def broadcast(user_id: int, payload: dict):
 
 def track_task(task: asyncio.Task):
     background_tasks.add(task)
+
     def done(completed):
         background_tasks.discard(completed)
         if not completed.cancelled():
             exc = completed.exception()
             if exc:
                 log.error("Background task crashed: %r", exc)
+
     task.add_done_callback(done)
+
+
+def start_order_processing(order_id: int, status: str):
+    task = asyncio.create_task(
+        process_order(
+            order_id,
+            broadcast,
+            database.set_order_status,
+            report_error,
+            initial_status=status,
+        ),
+        name=f"order-processing-{order_id}",
+    )
+    track_task(task)
 
 
 @dp.message(CommandStart())
@@ -105,6 +121,12 @@ async def start(message: Message):
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await database.init_db()
+    pending_orders = await database.get_pending_orders()
+    for order in pending_orders:
+        start_order_processing(order["order_id"], order["status"])
+    if pending_orders:
+        log.info("Resuming %s pending order(s) from SQLite", len(pending_orders))
+
     polling = asyncio.create_task(dp.start_polling(bot, handle_signals=False), name="telegram-polling")
     log.info("Q Mini App started")
     try:
@@ -167,10 +189,7 @@ async def create_order(payload: OrderRequest, user: dict = Depends(current_user)
         order, created = await database.create_order(user["id"], payload.product_id, payload.idempotency_key)
         profile = await database.get_user(user["id"])
         if created:
-            task = asyncio.create_task(
-                process_order(order["order_id"], broadcast, database.set_order_status, report_error)
-            )
-            track_task(task)
+            start_order_processing(order["order_id"], order["status"])
         return {**order, "balance": profile["balance"] if profile else None, "created": created}
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
