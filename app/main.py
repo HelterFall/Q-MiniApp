@@ -179,6 +179,20 @@ async def get_me(user: dict = Depends(current_user)):
         raise HTTPException(500, "Не удалось загрузить профиль")
 
 
+@app.post("/api/demo/reset-balance")
+async def reset_demo_balance(user: dict = Depends(current_user)):
+    """Restore fake balance for end-to-end demo testing; never moves real money."""
+    try:
+        await database.register_user(user["id"], user.get("username"))
+        balance = await database.reset_demo_balance(user["id"])
+        return {"balance": balance, "demo": True}
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    except Exception:
+        await report_error("Восстановление тестового баланса")
+        raise HTTPException(500, "Не удалось восстановить тестовый баланс")
+
+
 @app.get("/api/products")
 async def products():
     return [{"id": key, "name": val["name"], "price": val["price"]} for key, val in PRODUCTS.items()]
