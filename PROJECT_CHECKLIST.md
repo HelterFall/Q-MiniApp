@@ -20,7 +20,7 @@ This checklist tracks the original Telegram Mini App specification. Items marked
 
 - [ ] Reproduce and diagnose the unexpected extra 1,200 RUB seen during rapid testing; probable timing interaction with the test-balance reset, but exact historical cause is not established.
 - [ ] Stress-test simultaneous order requests and retries, including stale/reused idempotency keys.
-- [ ] Verify WebSocket reconnect/recovery when the final status event is missed or the browser reconnects after the order has finished.
+- [x] WebSocket reconnect/recovery: the backend now replays the latest persisted order state after authentication, and the frontend resumes polling when that order is still pending. Automated tests added; CI confirmation is still pending.
 - [ ] Verify restart/recovery after interruption at each order-processing status.
 - [ ] Do a final responsive/mobile and dark/light Telegram theme pass.
 
