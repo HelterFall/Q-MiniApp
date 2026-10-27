@@ -38,7 +38,7 @@ Then start:
 
     !uvicorn app.main:app --host 0.0.0.0 --port 8000
 
-Expose port 8000 using ngrok or another HTTPS tunnel. Set WEBAPP_URL to that HTTPS URL before starting the app, then open the Mini App through the bot's /start button. Never print or commit secrets.
+Expose port 8000 using ngrok or another HTTPS tunnel. Create the tunnel first, set WEBAPP_URL to its HTTPS URL, then start Uvicorn and open the Mini App through the bot's /start button. Keep BOT_TOKEN and tunnel credentials in Colab Secrets or environment variables; never print or commit them. Colab runtimes are temporary and may stop, so this setup is for demos and testing, not guaranteed 24/7 hosting.
 
 Run tests:
 
