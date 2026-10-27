@@ -27,7 +27,7 @@ Telegram Mini App prototype built with Python, aiogram 3, FastAPI, SQLite/aiosql
 
 This setup is for a school/demo run, not guaranteed 24/7 hosting.
 
-1. Download the ZIP from the private GitHub repository (**Code → Download ZIP**) and upload that ZIP in Colab with the first cell below.
+1. Download the ZIP from the GitHub repository (**Code → Download ZIP**) and upload that ZIP in Colab with the first cell below.
 2. In Colab's Secrets panel, add `BOT_TOKEN` (from BotFather) and `NGROK_AUTHTOKEN` (from your ngrok account). Enable notebook access for these secrets. Add `ADMIN_ID` only if you want Telegram error notifications.
 3. Run the cells in order. The app will show a public HTTPS URL and then start Uvicorn. Open the bot in Telegram and send `/start`.
 
