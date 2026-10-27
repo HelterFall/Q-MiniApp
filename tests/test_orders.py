@@ -1,3 +1,8 @@
+import os
+
+os.environ.setdefault("BOT_TOKEN", "123456789:ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghi")
+os.environ.setdefault("DATABASE_PATH", "/tmp/q-miniapp-test.db")
+
 import pytest
 
 from app import database
