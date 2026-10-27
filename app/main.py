@@ -39,7 +39,7 @@ def validate_init_data(init_data: str) -> dict:
         if not received_hash:
             raise ValueError("Missing hash")
         check_string = "\n".join(f"{key}={value}" for key, value in sorted(data.items()))
-        secret_key = hmac.new(b"WebAppData", BOT_TOKEN.encode(), hashlib.sha256).digest()
+        secret_key = hmac.new(BOT_TOKEN.encode(), b"WebAppData", hashlib.sha256).digest()
         expected = hmac.new(secret_key, check_string.encode(), hashlib.sha256).hexdigest()
         if not hmac.compare_digest(expected, received_hash):
             raise ValueError("Invalid signature")
