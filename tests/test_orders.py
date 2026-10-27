@@ -195,3 +195,55 @@ async def test_processing_resumes_from_warehouse_status(monkeypatch):
     assert status_updates == [(42, "Передано курьеру")]
     assert len(broadcasts) == 1
     assert broadcasts[0][1]["status"] == "Передано курьеру"
+
+
+
+@pytest.mark.asyncio
+async def test_websocket_reconnect_replays_latest_order_status(monkeypatch):
+    from app import main
+
+    messages = []
+
+    class FakeWebSocket:
+        async def send_json(self, payload):
+            messages.append(payload)
+
+    async def fake_recent_orders(user_id, limit=10):
+        assert user_id == 987654328
+        assert limit == 1
+        return [{
+            "order_id": 73,
+            "status": "Сборка на складе",
+        }]
+
+    monkeypatch.setattr(database, "get_recent_orders", fake_recent_orders)
+
+    await main.send_latest_order_status(FakeWebSocket(), 987654328)
+
+    assert messages == [{
+        "type": "order_status",
+        "order_id": 73,
+        "status": "Сборка на складе",
+    }]
+
+
+@pytest.mark.asyncio
+async def test_websocket_reconnect_does_not_send_fake_status_when_no_orders(monkeypatch):
+    from app import main
+
+    messages = []
+
+    class FakeWebSocket:
+        async def send_json(self, payload):
+            messages.append(payload)
+
+    async def fake_recent_orders(user_id, limit=10):
+        assert user_id == 987654329
+        assert limit == 1
+        return []
+
+    monkeypatch.setattr(database, "get_recent_orders", fake_recent_orders)
+
+    await main.send_latest_order_status(FakeWebSocket(), 987654329)
+
+    assert messages == []
