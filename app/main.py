@@ -184,6 +184,16 @@ async def products():
     return [{"id": key, "name": val["name"], "price": val["price"]} for key, val in PRODUCTS.items()]
 
 
+@app.get("/api/stock")
+async def stock():
+    """Expose the demo warehouse quantity so the Mini App can show Mock 1C results."""
+    try:
+        return await database.get_mock_stock()
+    except Exception:
+        await report_error("Получение остатков тестового склада")
+        raise HTTPException(500, "Не удалось загрузить остатки тестового склада")
+
+
 class OrderRequest(BaseModel):
     product_id: str = Field(min_length=1, max_length=50)
     idempotency_key: str = Field(min_length=16, max_length=100)
